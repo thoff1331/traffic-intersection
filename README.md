@@ -52,7 +52,7 @@ Output:
 
 ## Video Demo
 
-https://github.com/user-attachments/assets/30667ac0-2439-4b86-9220-65fd3d9628bd
+<video src="docs/demo.mp4" controls width="640"></video>
 
-
+[Download demo.mp4](docs/demo.mp4)
 

@@ -13,7 +13,7 @@ import React, { useRef, useEffect, useState } from "react";
  */
 
 /* ============================================================================
-   Traffic intersection — 4 approaches, 3 lanes each (L, T, R).
+   Traffic intersection — 4 approaches, 4 lanes each (L, T, T, R).
    Each approach has a through/right signal head and a dedicated left-turn
    head that can show red/yellow/green or flashing-amber (permissive: yield
    to oncoming through traffic). Smart actuation skips empty greens and ends
@@ -24,9 +24,11 @@ import React, { useRef, useEffect, useState } from "react";
 // ---- Layout ---------------------------------------------------------------
 const SIZE = 600;
 const CENTER = 300;
-const ROAD_HALF = 72; // half road width = 3 lanes * 24px
+const ROAD_HALF = 96; // half road width = 4 lanes * 24px (L, T, T, R)
 const SPAWN_Y = -40; // cars spawn just above the canvas
-const STOP_Y = CENTER - ROAD_HALF; // y of the stop bar on the N approach
+// Stop bar sits 14 px north of the intersection edge, leaving room for the
+// crosswalk between the bar and the intersection so cars stop before peds.
+const STOP_Y = CENTER - ROAD_HALF - 14;
 const STOP_DIST = STOP_Y - SPAWN_Y; // distance from spawn to stop bar
 const CAR_LEN = 26;
 const CAR_W = 14;
@@ -53,10 +55,12 @@ const GROUP = { N: "NS", S: "NS", E: "EW", W: "EW" };
 const OPPOSITE = { N: "S", S: "N", E: "W", W: "E" };
 
 // Lane center x's on the canonical N approach (median → outside).
+// Four inbound lanes: a dedicated left-turn, two through lanes, and a right.
 const LANE_X = {
   L: CENTER - 12,
-  T: CENTER - 36,
-  R: CENTER - 60,
+  T1: CENTER - 36,
+  T2: CENTER - 60,
+  R: CENTER - 84,
 };
 
 // Each lane is a 2- or 3-point polyline. Turns are a single corner.
@@ -66,29 +70,34 @@ const PATHS = {
     { x: LANE_X.L, y: CENTER + 14 },
     { x: 640, y: CENTER + 14 },
   ],
-  T: [
-    { x: LANE_X.T, y: SPAWN_Y },
-    { x: LANE_X.T, y: 640 },
+  T1: [
+    { x: LANE_X.T1, y: SPAWN_Y },
+    { x: LANE_X.T1, y: 640 },
+  ],
+  T2: [
+    { x: LANE_X.T2, y: SPAWN_Y },
+    { x: LANE_X.T2, y: 640 },
   ],
   R: [
     { x: LANE_X.R, y: SPAWN_Y },
-    { x: LANE_X.R, y: CENTER - 40 },
-    { x: -40, y: CENTER - 40 },
+    { x: LANE_X.R, y: CENTER - 64 },
+    { x: -40, y: CENTER - 64 },
   ],
 };
 const LANE_DEFS = [
   { key: "L", move: "L" },
-  { key: "T", move: "T" },
+  { key: "T1", move: "T" },
+  { key: "T2", move: "T" },
   { key: "R", move: "R" },
 ];
 
-function rotate(p, deg) {
-  const r = (deg * Math.PI) / 180;
-  const dx = p.x - CENTER;
-  const dy = p.y - CENTER;
+function rotate(point, deg) {
+  const rad = (deg * Math.PI) / 180;
+  const dx = point.x - CENTER;
+  const dy = point.y - CENTER;
   return {
-    x: CENTER + dx * Math.cos(r) - dy * Math.sin(r),
-    y: CENTER + dx * Math.sin(r) + dy * Math.cos(r),
+    x: CENTER + dx * Math.cos(rad) - dy * Math.sin(rad),
+    y: CENTER + dx * Math.sin(rad) + dy * Math.cos(rad),
   };
 }
 
@@ -102,33 +111,37 @@ function polylineLength(pts) {
 }
 
 // Position + heading at distance `d` along a polyline.
-/** @type {(pts: Point[], d: number) => { x: number, y: number, ang: number }} */
-function positionAt(pts, d) {
+/** @type {(pts: Point[], dist: number) => { x: number, y: number, ang: number }} */
+function positionAt(pts, dist) {
   for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1];
-    const b = pts[i];
-    const seg = Math.hypot(b.x - a.x, b.y - a.y);
-    if (d <= seg) {
-      const t = d / seg;
+    const start = pts[i - 1];
+    const end = pts[i];
+    const seg = Math.hypot(end.x - start.x, end.y - start.y);
+    if (dist <= seg) {
+      const frac = dist / seg;
       return {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-        ang: Math.atan2(b.y - a.y, b.x - a.x),
+        x: start.x + (end.x - start.x) * frac,
+        y: start.y + (end.y - start.y) * frac,
+        ang: Math.atan2(end.y - start.y, end.x - start.x),
       };
     }
-    d -= seg;
+    dist -= seg;
   }
-  const a = pts[pts.length - 2];
-  const b = pts[pts.length - 1];
-  return { x: b.x, y: b.y, ang: Math.atan2(b.y - a.y, b.x - a.x) };
+  const start = pts[pts.length - 2];
+  const end = pts[pts.length - 1];
+  return {
+    x: end.x,
+    y: end.y,
+    ang: Math.atan2(end.y - start.y, end.x - start.x),
+  };
 }
 
-// 12 lanes (4 approaches × 3 lane defs).
+// 16 lanes (4 approaches × 4 lane defs).
 function buildLanes() {
   const lanes = [];
   for (const ap of APPROACHES) {
     for (const def of LANE_DEFS) {
-      const path = PATHS[def.key].map((p) => rotate(p, ROTATION[ap]));
+      const path = PATHS[def.key].map((point) => rotate(point, ROTATION[ap]));
       lanes.push({
         id: `${ap}-${def.key}`,
         approach: ap,
@@ -158,14 +171,17 @@ const PHASE_RING = [
   "EW_THRU_Y",
   "AR2",
 ];
-const isGreen = (p) =>
-  p === "NS_LEFT" || p === "NS_THRU" || p === "EW_LEFT" || p === "EW_THRU";
-const isYellow = (p) => p.endsWith("_Y");
-const isAllRed = (p) => p === "AR1" || p === "AR2";
-const groupOf = (p) =>
-  p.startsWith("NS") ? "NS" : p.startsWith("EW") ? "EW" : null;
-const movesOf = (p) =>
-  p.includes("LEFT") ? ["L"] : p.includes("THRU") ? ["T", "R"] : [];
+const isGreen = (phase) =>
+  phase === "NS_LEFT" ||
+  phase === "NS_THRU" ||
+  phase === "EW_LEFT" ||
+  phase === "EW_THRU";
+const isYellow = (phase) => phase.endsWith("_Y");
+const isAllRed = (phase) => phase === "AR1" || phase === "AR2";
+const groupOf = (phase) =>
+  phase.startsWith("NS") ? "NS" : phase.startsWith("EW") ? "EW" : null;
+const movesOf = (phase) =>
+  phase.includes("LEFT") ? ["L"] : phase.includes("THRU") ? ["T", "R"] : [];
 
 const TIMING = {
   greenMin: 4, // smart: don't end a green before this
@@ -239,15 +255,15 @@ function createSim() {
 // Count cars approaching the stop bar for the moves this phase serves,
 // within `range` px of the bar.
 function demand(sim, phase, range) {
-  const g = groupOf(phase);
+  const group = groupOf(phase);
   const moves = movesOf(phase);
-  let n = 0;
-  for (const c of sim.cars) {
-    if (GROUP[c.approach] !== g || !moves.includes(c.move)) continue;
-    if (c.dist > STOP_DIST + 2) continue; // past the bar
-    if (c.dist > STOP_DIST - range) n++;
+  let count = 0;
+  for (const car of sim.cars) {
+    if (GROUP[car.approach] !== group || !moves.includes(car.move)) continue;
+    if (car.dist > STOP_DIST + 2) continue; // past the bar
+    if (car.dist > STOP_DIST - range) count++;
   }
-  return n;
+  return count;
 }
 
 function advancePhase(sim) {
@@ -264,18 +280,18 @@ function advancePhase(sim) {
 
 function stepPhase(sim, dt) {
   sim.phaseT += dt;
-  const p = sim.phase;
+  const phase = sim.phase;
 
-  if (isGreen(p)) {
+  if (isGreen(phase)) {
     // Gap-out: end the green once the queue has been clear for `gapOut`
     // seconds, but never before `greenMin` and always by `greenMax`.
-    if (demand(sim, p, 18) > 0) sim.gapTimer = 0;
+    if (demand(sim, phase, 18) > 0) sim.gapTimer = 0;
     else sim.gapTimer += dt;
     const min = sim.phaseT >= TIMING.greenMin;
     const max = sim.phaseT >= TIMING.greenMax;
     if (max || (min && sim.gapTimer >= TIMING.gapOut)) advancePhase(sim);
   } else {
-    const dur = isYellow(p) ? TIMING.yellow : TIMING.allRed;
+    const dur = isYellow(phase) ? TIMING.yellow : TIMING.allRed;
     if (sim.phaseT >= dur) advancePhase(sim);
   }
 }
@@ -301,18 +317,18 @@ function stepCrosswalks(sim, dt) {
 function permissiveClear(sim, car) {
   const opp = OPPOSITE[car.approach];
   return !sim.cars.some(
-    (c) =>
-      c.approach === opp &&
-      c.move === "T" &&
-      c.dist > STOP_DIST - 8 &&
-      c.dist < STOP_DIST + 150,
+    (other) =>
+      other.approach === opp &&
+      other.move === "T" &&
+      other.dist > STOP_DIST - 8 &&
+      other.dist < STOP_DIST + 150,
   );
 }
 
 function spawnCar(sim) {
   // Pick a lane that has no car within 44 px of the spawn point.
   const free = sim.lanes.filter(
-    (l) => !sim.cars.some((c) => c.laneId === l.id && c.dist < 44),
+    (lane) => !sim.cars.some((car) => car.laneId === lane.id && car.dist < 44),
   );
   if (!free.length) return;
   const lane = pick(free);
@@ -332,7 +348,7 @@ function spawnCar(sim) {
 function stepCars(sim, dt) {
   // Sort each lane front-to-back so each car only checks the one ahead.
   const byLane = {};
-  for (const c of sim.cars) (byLane[c.laneId] ||= []).push(c);
+  for (const car of sim.cars) (byLane[car.laneId] ||= []).push(car);
 
   for (const id in byLane) {
     const list = byLane[id].sort((a, b) => b.dist - a.dist);
@@ -361,8 +377,8 @@ function stepCars(sim, dt) {
   }
 
   // Retire cars that have left the canvas.
-  sim.cars = sim.cars.filter((c) => {
-    if (c.dist >= c.length) {
+  sim.cars = sim.cars.filter((car) => {
+    if (car.dist >= car.length) {
       sim.cleared++;
       return false;
     }
@@ -394,7 +410,7 @@ function withRotation(ctx, ap, fn) {
   ctx.restore();
 }
 
-function draw(ctx, sim, t) {
+function draw(ctx, sim, time) {
   ctx.clearRect(0, 0, SIZE, SIZE);
 
   // Grass + asphalt cross.
@@ -404,20 +420,20 @@ function draw(ctx, sim, t) {
   ctx.fillRect(CENTER - ROAD_HALF, 0, ROAD_HALF * 2, SIZE);
   ctx.fillRect(0, CENTER - ROAD_HALF, SIZE, ROAD_HALF * 2);
 
-  APPROACHES.forEach((ap) => drawApproach(ctx, ap, sim, t));
+  APPROACHES.forEach((ap) => drawApproach(ctx, ap, sim, time));
   sim.cars.forEach((car) => drawCar(ctx, car));
-  APPROACHES.forEach((ap) => drawSignals(ctx, ap, sim, t));
+  APPROACHES.forEach((ap) => drawSignals(ctx, ap, sim, time));
   drawCompass(ctx, SIZE - 44, SIZE - 44);
 }
 
 // Small N/E/S/W compass overlay in the corner.
 function drawCompass(ctx, cx, cy) {
-  const r = 22;
+  const radius = 22;
   ctx.save();
   // Backing disc.
   ctx.fillStyle = "rgba(15,23,32,0.75)";
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "rgba(201,204,196,0.4)";
   ctx.lineWidth = 1;
@@ -425,14 +441,14 @@ function drawCompass(ctx, cx, cy) {
 
   // Needle: red points N, grey points S.
   ctx.beginPath();
-  ctx.moveTo(cx, cy - r + 6);
+  ctx.moveTo(cx, cy - radius + 6);
   ctx.lineTo(cx - 4, cy);
   ctx.lineTo(cx + 4, cy);
   ctx.closePath();
   ctx.fillStyle = COLORS.red;
   ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(cx, cy + r - 6);
+  ctx.moveTo(cx, cy + radius - 6);
   ctx.lineTo(cx - 4, cy);
   ctx.lineTo(cx + 4, cy);
   ctx.closePath();
@@ -444,20 +460,20 @@ function drawCompass(ctx, cx, cy) {
   ctx.font = "bold 9px ui-sans-serif, system-ui";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("N", cx, cy - r + 2);
-  ctx.fillText("S", cx, cy + r - 2);
-  ctx.fillText("W", cx - r + 4, cy);
-  ctx.fillText("E", cx + r - 4, cy);
+  ctx.fillText("N", cx, cy - radius + 2);
+  ctx.fillText("S", cx, cy + radius - 2);
+  ctx.fillText("W", cx - radius + 4, cy);
+  ctx.fillText("E", cx + radius - 4, cy);
   ctx.restore();
 }
 
-function drawApproach(ctx, ap, sim, t) {
+function drawApproach(ctx, ap, sim, time) {
   withRotation(ctx, ap, () => {
-    // Dashed lane lines.
+    // Dashed lane lines (between the 4 inbound lanes).
     ctx.strokeStyle = COLORS.line;
     ctx.lineWidth = 2;
     ctx.setLineDash([12, 12]);
-    for (const x of [CENTER - 24, CENTER - 48]) {
+    for (const x of [CENTER - 24, CENTER - 48, CENTER - 72]) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, STOP_Y - 4);
@@ -476,13 +492,15 @@ function drawApproach(ctx, ap, sim, t) {
     ctx.fillStyle = COLORS.line;
     ctx.fillRect(CENTER - ROAD_HALF, STOP_Y - 4, ROAD_HALF, 4);
 
-    // Crosswalk: bright pulse when this approach's WALK is active, dim otherwise.
+    // Crosswalk: drawn south of the stop bar (between the bar and the
+    // intersection) so it sits in front of stopped cars. Bright pulse when
+    // this approach's WALK is active, dim otherwise.
     const walking = sim.walkActive[ap] > 0;
     ctx.fillStyle = walking
-      ? `rgba(255,255,255,${0.5 + 0.4 * Math.abs(Math.sin(t * 3))})`
+      ? `rgba(255,255,255,${0.5 + 0.4 * Math.abs(Math.sin(time * 3))})`
       : "rgba(201,204,196,0.35)";
     for (let x = CENTER - ROAD_HALF + 4; x < CENTER + ROAD_HALF - 4; x += 12) {
-      ctx.fillRect(x, STOP_Y - 14, 6, 8);
+      ctx.fillRect(x, STOP_Y + 2, 6, 8);
     }
   });
 }
@@ -494,28 +512,26 @@ function drawCar(ctx, car) {
   ctx.rotate(pos.ang);
   ctx.fillStyle = car.color;
   ctx.fillRect(-CAR_LEN / 2, -CAR_W / 2, CAR_LEN, CAR_W);
-  // Dark windshield so you can see which way the car is facing.
   ctx.fillStyle = "rgba(15,20,28,0.5)";
   ctx.fillRect(CAR_LEN / 2 - 7, -CAR_W / 2 + 2, 4, CAR_W - 4);
   ctx.restore();
 }
 
-// Two signal heads per approach: left-turn (L) and through/right (TR).
-function drawSignals(ctx, ap, sim, t) {
+function drawSignals(ctx, ap, sim, time) {
   withRotation(ctx, ap, () => {
     const x = CENTER - ROAD_HALF - 14;
     const y = STOP_Y - 6;
     const group = GROUP[ap];
 
-    const tr = lightColor(group, "TR", sim.phase);
-    const lf = lightColor(group, "L", sim.phase);
+    const throughRight = lightColor(group, "TR", sim.phase);
+    const left = lightColor(group, "L", sim.phase);
 
     // Permissive left flashes amber at 2 Hz.
-    const flashOn = Math.floor(t * 2) % 2 === 0;
-    const lfShown = lf === "flash" ? (flashOn ? "yellow" : "off") : lf;
+    const flashOn = Math.floor(time * 2) % 2 === 0;
+    const leftShown = left === "flash" ? (flashOn ? "yellow" : "off") : left;
 
-    drawStack(ctx, x, y, tr);
-    drawStack(ctx, x - 18, y, lfShown);
+    drawStack(ctx, x, y, throughRight);
+    drawStack(ctx, x - 18, y, leftShown);
   });
 }
 
@@ -558,13 +574,13 @@ export default function Intersection() {
       draw(ctx, simRef.current, now / 1000);
       if (++frames >= 6) {
         frames = 0;
-        const s = simRef.current;
-        setPhase(s.phase);
+        const sim = simRef.current;
+        setPhase(sim.phase);
         const snap = {};
         for (const ap of APPROACHES) {
           snap[ap] = {
-            active: s.walkActive[ap] > 0,
-            pending: !!s.walkPending[ap],
+            active: sim.walkActive[ap] > 0,
+            pending: !!sim.walkPending[ap],
           };
         }
         setWalks(snap);
@@ -627,10 +643,10 @@ export default function Intersection() {
         <span className="text-xs text-zinc-500">Walk requests</span>
         <div className="flex gap-2">
           {APPROACHES.map((ap) => {
-            const w = walks[ap] || {};
-            const cls = w.active
+            const walk = walks[ap] || {};
+            const cls = walk.active
               ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
-              : w.pending
+              : walk.pending
                 ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40"
                 : "bg-zinc-800 text-zinc-300";
             return (
@@ -640,7 +656,7 @@ export default function Intersection() {
                 className={`px-3 py-1.5 rounded text-sm font-mono ${cls}`}
               >
                 {ap}
-                {w.active ? " ▶" : w.pending ? " •" : ""}
+                {walk.active ? " ▶" : walk.pending ? " •" : ""}
               </button>
             );
           })}
