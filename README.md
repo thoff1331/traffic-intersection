@@ -50,15 +50,7 @@ Output:
 
 ## Video Demo
 
-<<<<<<< HEAD
-https://github.com/user-attachments/assets/30667ac0-2439-4b86-9220-65fd3d9628bd
 
 [Download demo.mp4](docs/demo.mp4)
-=======
-
-
 https://github.com/user-attachments/assets/0c1dc4b6-fe48-4010-973d-2e4c6d3e19bc
 
-
-
->>>>>>> 5368995e6cb388729e1a44e567a6d4247234d5bc
