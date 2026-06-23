@@ -50,12 +50,6 @@ Output:
 
 ## Video Demo
 
-https://github.com/user-attachments/assets/0c1dc4b6-fe48-4010-973d-2e4c6d3e19bc
-
-[Download demo.mp4](docs/demo.mp4)
-
-
-
 https://github.com/user-attachments/assets/061da1a9-c8ce-43b4-bd4b-c6d4ae53ce0f
 
 
