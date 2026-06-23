@@ -44,15 +44,12 @@ npm run test
 
 Output:
 
-
 <img width="898" height="530" alt="Screenshot 2026-06-23 at 2 16 33 PM" src="https://github.com/user-attachments/assets/17293bdb-c67b-4eb8-9cbb-ff9a02935feb" />
-
 
 ![Vitest run — 24 tests passing](docs/screenshot.png)
 
 ## Video Demo
 
-<video src="docs/demo.mp4" controls width="640"></video>
+https://github.com/user-attachments/assets/30667ac0-2439-4b86-9220-65fd3d9628bd
 
 [Download demo.mp4](docs/demo.mp4)
-
