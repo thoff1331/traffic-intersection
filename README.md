@@ -51,6 +51,8 @@ Output:
 ## Video Demo
 
 
-[Download demo.mp4](docs/demo.mp4)
-https://github.com/user-attachments/assets/0c1dc4b6-fe48-4010-973d-2e4c6d3e19bc
+
+https://github.com/user-attachments/assets/74ddd013-55ea-4bd9-9b4a-147818e5d29e
+
+
 
