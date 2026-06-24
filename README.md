@@ -36,6 +36,8 @@ Buttons:
   direction. The walk starts as soon as the perpendicular traffic group
   is fully red; the crosswalk stripes pulse bright while a walk is active.
 
+  ## transcript can be found in transcript.txt file
+
 ## Running Tests
 
 ```bash
@@ -50,6 +52,47 @@ Output:
 
 ## Video Demo
 
-https://github.com/user-attachments/assets/0c1dc4b6-fe48-4010-973d-2e4c6d3e19bc
+https://github.com/user-attachments/assets/30667ac0-2439-4b86-9220-65fd3d9628bd
 
 [Download demo.mp4](docs/demo.mp4)
+
+## Improvements I'd make
+
+A few specific things I'd change with more time, grounded in the current code:
+
+- **Promote sensor ranges to `TIMING`.** The `200` (skip-empty-green
+  lookahead) and `18` (gap-out window) inside `demand()` are magic numbers
+  buried in `advancePhase` / `stepPhase`. They belong next to `greenMin`,
+  `greenMax`, and `gapOut` so all of the actuation tuning lives in one place,
+  and so the unit tests can assert against named constants instead of literals.
+- **Replace `walkPending` (sparse object with `delete`) with a flat record
+  like `walkActive`.** Mixing `{}` + `delete` for one field and `{ N: 0, ... }`
+  for another is inconsistent and makes the snapshot in the render loop do
+  `!!sim.walkPending[ap]` to paper over the asymmetry. A `{ N: false, E: false,
+S: false, W: false }` shape removes that.
+- **Pedestrian countdown / Flashing-Don't-Walk.** Today the crosswalk pulses
+  bright for the full 5 s and then snaps off. Real signals have a flashing
+  clearance interval (FDW) so a pedestrian who started late doesn't get
+  stranded. Splitting `walkActive` into `walkWalk` + `walkClear` (e.g. 3 s + 2 s)
+  and rendering a different pattern during clearance would close that gap.
+- **Index cars by lane on the sim object.** `stepCars` rebuilds `byLane` from a
+  flat `sim.cars` array every frame, and `demand()` does a linear scan over
+  every car for every phase decision. Both are fine at ~30 cars but would
+  start to matter at hundreds. Maintaining `sim.carsByLane` at spawn/retire
+  time turns both into O(cars-in-served-lanes).
+- **Deterministic mode for tests and reproducible bugs.** `spawnCar`,
+  `pick(CAR_COLORS)`, and the spawn-timer jitter all use `Math.random()`
+  directly. Threading a seeded RNG through `createSim({ seed })` would let
+  tests assert on full simulated runs and let me replay a specific scenario
+  when something looks wrong on screen.
+- **Yellow timing tied to approach speed.** `TIMING.yellow = 2` is a flat
+  constant, but real yellow intervals are derived from approach speed,
+  perception-reaction time, and deceleration. With one approach speed
+  (`CAR_SPEED = 150`) this doesn't matter today, but if I added per-approach
+  speeds (e.g. a faster arterial vs. a slower side street), the yellow should
+  derive from them rather than being hard-coded.
+- **More test coverage around phase transitions.** The current suite covers
+  pure helpers well, but I'd add integration-style tests that drive
+  `stepPhase` over a full cycle and assert: skip-empty-green actually skips
+  when `demand == 0`, gap-out never fires before `greenMin`, and `greenMax`
+  always caps the green even with constant demand.
