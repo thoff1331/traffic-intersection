@@ -96,3 +96,4 @@ S: false, W: false }` shape removes that.
   `stepPhase` over a full cycle and assert: skip-empty-green actually skips
   when `demand == 0`, gap-out never fires before `greenMin`, and `greenMax`
   always caps the green even with constant demand.
+  https://github.com/user-attachments/assets/061da1a9-c8ce-43b4-bd4b-c6d4ae53ce0f
