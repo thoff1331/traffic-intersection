@@ -36,8 +36,6 @@ Buttons:
   direction. The walk starts as soon as the perpendicular traffic group
   is fully red; the crosswalk stripes pulse bright while a walk is active.
 
-  ## transcript can be found in  the src/transcript.txt file
-
 ## Running Tests
 
 ```bash
